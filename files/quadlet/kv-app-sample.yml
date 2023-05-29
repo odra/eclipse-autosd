@@ -18,6 +18,9 @@ spec:
       containers:
       - image: localhost/kv-app:latest
         name: kv-app
+        env:
+          - name: CHARIOTT_URL
+            value: "http://rust-chariott-pod:4243"
         resources: 
           limits:
             cpu: "1"
