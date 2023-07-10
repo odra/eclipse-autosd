@@ -38,7 +38,6 @@ pipelines:
             - mpp-eval: image_rpms
             - mpp-eval: extra_rpms
             - - podman
-              - podman-quadlet
               - containernetworking-plugins
               - aardvark-dns
           excludes:
@@ -49,13 +48,7 @@ pipelines:
         type: org.osbuild.containers
         origin: org.osbuild.source
         mpp-resolve-images:
-          images: 
-            - source: registry.gitlab.com/centos/automotive/sample-images/ecal-sample-cpp-subscriber
-              tag: latest-f37
-              name: localhost/ecal-cpp-subscriber
-            - source: registry.gitlab.com/centos/automotive/sample-images/ecal-sample-cpp-publisher
-              tag: latest-f37
-              name: localhost/ecal-cpp-publisher
+          images:  
             - source: quay.io/fedora/chariott
               tag: latest
               name: localhost/chariott
@@ -85,18 +78,6 @@ pipelines:
           id: ecal_ini
           path: ../files/ecal/ecal.ini
       # quadlet 
-      quadlet_kube_esdv_pubsub:
-        type: org.osbuild.files
-        origin: org.osbuild.source
-        mpp-embed:
-          id: quadlet_kube_esdv_pubsub
-          path: ../files/quadlet/ecal-sample-pubsub.kube
-      quadlet_deployment_esdv_pubsub:
-        type: org.osbuild.files
-        origin: org.osbuild.source
-        mpp-embed:
-          id: quadlet_deployment_esdv_pubsub
-          path: ../files/quadlet/ecal-sample-pubsub.yml
       quadlet_kube_chariottsdv:
         type: org.osbuild.files
         origin: org.osbuild.source
@@ -139,13 +120,6 @@ pipelines:
         - from:
             mpp-format-string: input://ecal_ini/{embedded['ecal_ini']}
           to: tree:///etc/ecal/ecal.ini
-        # quadlet 
-        #- from:
-        #    mpp-format-string: input://quadlet_kube_esdv_pubsub/{embedded['quadlet_kube_esdv_pubsub']}
-        #  to: tree:////etc/containers/systemd/ecal-sample-pubsub.kube
-        #- from:
-        #    mpp-format-string: input://quadlet_deployment_esdv_pubsub/{embedded['quadlet_deployment_esdv_pubsub']}
-        #  to: tree:////etc/containers/systemd/ecal-sample-pubsub.yml
         - from:
             mpp-format-string: input://quadlet_kube_chariottsdv/{embedded['quadlet_kube_chariottsdv']}
           to: tree:////etc/containers/systemd/chariott-sample.kube

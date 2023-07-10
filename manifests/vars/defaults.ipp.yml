@@ -356,8 +356,4 @@ mpp-vars:
     - passwd
     - rootfiles
     - selinux-policy-targeted
-    - systemd-udev
-  # Snapshot of podman 4.4 until it is in cs9
-  podman_snapshot_repos:
-    - id: copr-podman-snapshot
-      baseurl: https://download.copr.fedorainfracloud.org/results/alexl/podman-snapshot/centos-stream-9-$arch/
+    - systemd-udev 
