@@ -27,10 +27,22 @@ make build
 
 ## Running
 
-Run the image using qemu:
+Running depends on the target it was built, but, the following command can be used to run it
+using QEMU (minor modifications may apply depending on your environment):
 
 ```
-make run/qemu
+/usr/bin/qemu-system-x86_64 \
+-drive file=/usr/share/OVMF/OVMF_CODE.fd,if=pflash,format=raw,unit=0,readonly=on \
+-drive file=/usr/share/OVMF/OVMF_VARS.fd,if=pflash,format=raw,unit=1,snapshot=on,readonly=off \
+-smp 20 \
+-nographic \
+-enable-kvm \
+-m 2G \
+-machine q35 \
+-cpu host \
+-device virtio-net-pci,netdev=n0 \
+-netdev user,id=n0,net=10.0.2.0/24,hostfwd=tcp::2222-:22 \
+-drive file=outputs/disk.qcow2,index=0,media=disk,format=qcow2,if=virtio,id=rootdisk,snapshot=off
 ```
 
 Login using `root`/`password`.
