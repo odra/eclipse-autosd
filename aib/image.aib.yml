@@ -7,35 +7,53 @@ content:
   rpms:
     - openssh-server
     - podman
-    - bluechi-ctl
-    - bluechi-is-online
     - hostname
     - crun
     - fuse-overlayfs
     - dnf
+    # bluechi packages
+    - bluechi-selinux
+    - bluechi-controller
+    - bluechi-agent
+    - bluechi-ctl
   container_images:
     - source: ghcr.io/rust-cross/rust-musl-cross
       tag: x86_64-musl
       name: ghcr.io/rust-cross/rust-musl-cross:x86_64-musl
   systemd:
     enabled_services:
-      - esdv-blueprint-mount.service
-  chmod_files:
-    # esdv-check-blueprint-vol
-    - path: /usr/local/bin/esdv-check-blueprint-vol
-      mode: "0755"
-      recursive: false
+      - sshd.service
+      - bluechi-controller.service
+      - bluechi-agent.service
+      - esdv-blueprint-mount.service 
+  make_dirs:
+    - path: /etc/containers/systemd/qm.container.d
+      mode: 0755
+      parents: true
+      exist_ok: true
   add_files:
+    # qm files
+    - path: /etc/containers/systemd/qm.container.d/11-bluechi-socket.conf
+      source_path: ../files/etc/containers/systemd/qm.container.d/00-bluechi-socket.conf
+    # bluechi files
+    - path: /etc/bluechi/controller.conf.d/0-main.conf
+      source_path: ../files/etc/bluechi/controller.conf.d/0-main.conf
+    - path: /etc/bluechi/agent.conf.d/0-main.conf
+      source_path: ../files/etc/bluechi/agent.conf.d/0-main.conf
     # esdv-check-blueprint-vol
-    - source_path: ../files/usr/local/bin/esdv-check-blueprint-vol
-      path: /usr/local/bin/esdv-check-blueprint-vol
+    - source_path: ../files/usr/bin/esdv-check-blueprint-vol
+      path: /usr/bin/esdv-check-blueprint-vol
     # esdv-blueprint-mount.service
     - source_path: ../files/etc/systemd/system/esdv-blueprint-mount.service
       path: /etc/systemd/system/esdv-blueprint-mount.service
     # esdv.network
     - source_path: ../files/etc/containers/systemd/esdv.network
       path: /etc/containers/systemd/esdv.network
-
+  chmod_files:
+    # esdv-check-blueprint-vol
+    - path: /usr/bin/esdv-check-blueprint-vol
+      mode: "0755"
+      recursive: false
 qm:
   memory_limit:
     max: infinity
@@ -46,6 +64,14 @@ qm:
     repos: []
     rpms:
       - git
+      - bluechi-agent
+    add_files:
+      # bluechi files
+      - path: /etc/bluechi/agent.conf.d/0-qm.conf
+        source_path: ../files/etc/bluechi/agent.conf.d/0-qm.conf 
+    systemd:
+      enabled_services:
+        - bluechi-agent
 
 image:
   hostname: esdv-main-compute
@@ -60,7 +86,6 @@ network:
   static: {}
 
 auth:
-  root_password: $6$xoLqEUz0cGGJRx01$H3H/bFm0myJPULNMtbSsOFd/2BnHqHkMD92Sfxd.EKM9hXTWSmELG8cf205l6dktomuTcgKGGtGDgtvHVXSWU.
   sshd_config:
     PasswordAuthentication: true
     PermitRootLogin: true

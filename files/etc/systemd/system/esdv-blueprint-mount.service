@@ -6,7 +6,7 @@ After=local-fs.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecCondition=/usr/local/bin/esdv-check-blueprint-vol
+ExecCondition=/usr/bin/esdv-check-blueprint-vol
 ExecStartPre=mkdir -p /mnt/esdv-blueprint
 ExecStart=mount -t virtiofs host /mnt/esdv-blueprint
 ExecStop=umount -l /mnt/esdv-blueprint
