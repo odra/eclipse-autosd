@@ -1,3 +1,5 @@
+NOTE: This repository is not longer active. All activities have been moved to https://github.com/eclipse-autosd/eclipse-autosd
+
 # autosd-image-eclipse-sdv
 
 AutoSD image manifests to run EclipeSDV projects and blueprints.
