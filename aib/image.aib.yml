@@ -28,10 +28,6 @@ content:
     - bluechi-controller
     - bluechi-agent
     - bluechi-ctl
-  container_images:
-    - source: ghcr.io/rust-cross/rust-musl-cross
-      tag: x86_64-musl
-      name: ghcr.io/rust-cross/rust-musl-cross:x86_64-musl
   systemd:
     enabled_services:
       - sshd.service
@@ -46,20 +42,20 @@ content:
   add_files:
     # qm files
     - path: /etc/containers/systemd/qm.container.d/11-bluechi-socket.conf
-      source_path: ../files/etc/containers/systemd/qm.container.d/00-bluechi-socket.conf
+      source_path: files/etc/containers/systemd/qm.container.d/00-bluechi-socket.conf
     # bluechi files
     - path: /etc/bluechi/controller.conf.d/0-main.conf
-      source_path: ../files/etc/bluechi/controller.conf.d/0-main.conf
+      source_path: files/etc/bluechi/controller.conf.d/0-main.conf
     - path: /etc/bluechi/agent.conf.d/0-main.conf
-      source_path: ../files/etc/bluechi/agent.conf.d/0-main.conf
+      source_path: files/etc/bluechi/agent.conf.d/0-main.conf
     # esdv-check-blueprint-vol
-    - source_path: ../files/usr/bin/esdv-check-blueprint-vol
+    - source_path: files/usr/bin/esdv-check-blueprint-vol
       path: /usr/bin/esdv-check-blueprint-vol
     # esdv-blueprint-mount.service
-    - source_path: ../files/etc/systemd/system/esdv-blueprint-mount.service
+    - source_path: files/etc/systemd/system/esdv-blueprint-mount.service
       path: /etc/systemd/system/esdv-blueprint-mount.service
     # esdv.network
-    - source_path: ../files/etc/containers/systemd/esdv.network
+    - source_path: files/etc/containers/systemd/esdv.network
       path: /etc/containers/systemd/esdv.network
   chmod_files:
     # esdv-check-blueprint-vol
@@ -80,7 +76,7 @@ qm:
     add_files:
       # bluechi files
       - path: /etc/bluechi/agent.conf.d/0-qm.conf
-        source_path: ../files/etc/bluechi/agent.conf.d/0-qm.conf 
+        source_path: files/etc/bluechi/agent.conf.d/0-qm.conf 
     systemd:
       enabled_services:
         - bluechi-agent
