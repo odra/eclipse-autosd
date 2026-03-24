@@ -1,0 +1,137 @@
+# *******************************************************************************
+# Copyright (c) 2025 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Apache License Version 2.0 which is available at
+# https://www.apache.org/licenses/LICENSE-2.0
+#
+# SPDX-License-Identifier: Apache-2.0
+# *******************************************************************************
+name: "AutoSD: Bootc Images"
+
+on:
+  schedule:
+    # Every Monday at 4:00 AM
+    - cron: '0 4 * * 1'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/autosd-bootc-images.yml
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  AIB_DISTRO: autosd10-sig
+  AIB_BUILDER_IMAGE: ghcr.io/eclipse-autosd/autosd-bootc-builder:latest 
+  AIB_BUILD_DIR: ${{ github.workspace }}/_build
+  AIB_OUTPUTS_DIR: ${{ github.workspace }}/_build/outputs
+  AIB_LOCAL_CONTAINER_STORAGE: ${{ github.workspace }}/_build/containers-storage
+
+jobs:
+  build-bootc:
+    strategy:
+      matrix:
+        platform: [qemu-x86_64, qemu-aarch64, rpi4-aarch64]
+        include:
+          - platform: qemu-x86_64
+            runner: ubuntu-24.04
+            oci_arch: amd64
+            aib_target: qemu
+          - platform: qemu-aarch64
+            runner: ubuntu-24.04-arm
+            oci_arch: arm64
+            aib_target: qemu
+          - platform: rpi4-aarch64
+            runner: ubuntu-24.04-arm
+            oci_arch: arm64
+            aib_target: rpi4
+    
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Base Dependencies
+        run: |
+          sudo apt update -y
+          sudo apt install -y podman tree
+
+      - name: Podman Info
+        run: podman info
+
+      - name: Install AIB container script
+        run: |
+          wget -O auto-image-builder.sh \
+          https://gitlab.com/CentOS/automotive/src/automotive-image-builder/-/raw/main/auto-image-builder.sh?ref_type=heads
+
+          chmod +x auto-image-builder.sh
+
+      - name: Prepare Build
+        run: |
+          mkdir -p ${AIB_BUILD_DIR}
+          mkdir -p ${AIB_OUTPUTS_DIR}
+          mkdir -p ${AIB_LOCAL_CONTAINER_STORAGE}
+      
+      - name: Build Bootc Image
+        run: |
+          sudo -E ./auto-image-builder.sh build \
+          --build-container ${AIB_BUILDER_IMAGE} \
+          --distro ${AIB_DISTRO} \
+          --target ${{ matrix.aib_target }} \
+          --define-file aib/vars.yml \
+          --define-file aib/vars-devel.yml \
+          --oci-archive \
+          aib/image.aib.yml \
+          _build/outputs/eclipse-autosd-bootc-${{ matrix.aib_target }}-latest-${{ matrix.oci_arch }}.oci
+
+      - name: Fix Build Directory Permission
+        run: sudo chown -R $(id -u):$(id -u) ${AIB_BUILD_DIR}
+      
+      - name: Inspect Outputs Directory
+        run: tree $PWD/_build/outputs
+      
+      - name: Upload OCI Archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: score-autosd-${{ matrix.aib_target }}-latest-${{ matrix.oci_arch }}.oci
+          path: _build/outputs/eclipse-autosd-bootc-${{ matrix.aib_target }}-latest-${{ matrix.oci_arch }}.oci
+
+  publish-bootc:
+    # See: https://github.com/actions/runner-images/issues/10443
+    runs-on: ubuntu-22.04
+    
+    needs: build-bootc
+    
+    permissions:
+      packages: write
+    
+    env:
+      OCI_REG: ghcr.io
+      OCI_ORG: ${{ github.repository }}
+    
+    steps:
+      - name: Prepare
+        run: mkdir -p ${AIB_OUTPUTS_DIR}
+ 
+      - name: Install System Dependencies
+        run: |
+          sudo apt update -y
+          sudo apt install -y podman tree
+ 
+      - name: Download Container Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: _build/outputs
+          merge-multiple: true
+ 
+      - name: Inspect Current Directory
+        run: tree .
