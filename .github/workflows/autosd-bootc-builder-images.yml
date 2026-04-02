@@ -73,6 +73,7 @@ jobs:
     # See: https://github.com/actions/runner-images/issues/10443
     runs-on: ubuntu-22.04
     needs: build-builder
+    if: github.event_name != 'pull_request'
     permissions:
       contents: read
       packages: write
