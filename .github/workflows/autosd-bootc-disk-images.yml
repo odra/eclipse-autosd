@@ -1,11 +1,90 @@
+# *******************************************************************************
+# Copyright (c) 2025 Contributors to the Eclipse Foundation
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Apache License Version 2.0 which is available at
+# https://www.apache.org/licenses/LICENSE-2.0
+#
+# SPDX-License-Identifier: Apache-2.0
+# *******************************************************************************
 name: "AutoSD: Bootc Disk Images"
 
 on:
+#  schedule:
+    # 04:00 UTC every Monday
+#    - cron: "0 4 * * 1"
+#  pull_request:
+#    branches:
+#      - main
+    paths:
+      - .github/workflows/autosd-bootc-disk-images.yml
   workflow_dispatch:
 
 jobs:
-  hello:
-    runs-on: ubuntu-latest
+  build-target-image:
+    strategy:
+      matrix:
+        platform: [x86_64, aarch64]
+        include:
+          - platform: x86_64
+            runner: ubuntu-24.04
+            oci_arch: amd64
+            aib_targets: qemu
+         # - platform: aarch64
+         #   runner: ubuntu-24.04-arm
+         #   oci_arch: arm64
+         #   aib_targets: qemu,rpi4
+
+    runs-on: ${{ matrix.runner }}
+    env:
+      AIB_BUILD_CONTAINER_IMAGE: ghcr.io/eclipse-autosd/eclipse-autosd-builder:latest
+      AIB_LOCAL_CONTAINER_STORAGE: ${{ github.workspace }}/_build/containers-storage
     steps:
-      - name: Say hello
-        run: echo "Hello, GitHub Actions!"
+      - uses: actions/checkout@v4
+      - name: Install Base Dependencies
+        run: |
+          sudo apt update -y
+          sudo apt install -y podman tree
+      - name: Podman Info
+        run: podman info
+      - name: Install AIB container script
+        run: |
+          wget -O auto-image-builder.sh \
+          https://gitlab.com/CentOS/automotive/src/automotive-image-builder/-/raw/main/auto-image-builder.sh?ref_type=heads
+          chmod +x auto-image-builder.sh
+      - name: Prepare Build
+        run: |
+          mkdir -p $PWD/_build/{containers-storage,outputs}
+      - name: Fetch Builder Image
+        env:
+          CONTAINERS_STORAGE_CONF: containers-storage.local.conf
+        run: |
+          skopeo copy \
+          docker://${AIB_BUILD_CONTAINER_IMAGE} \
+          containers-storage:${AIB_BUILD_CONTAINER_IMAGE}
+      - name: Generate Disk Images
+        run: |
+          IFS=';' read -ra "${AIB_TARGETS}" <<< "${{matrix.aib_targets}}"
+          for aib_target in "${AIB_TARGETS[@]}"; do
+
+            aib_oci_image=ghcr.io/eclipse-autosd/eclipse-autosd-bootc-${aib_target}:latest
+            aib_oci_archive=eclipse-autosd-bootc-${aib_target}-latest.oci
+            aib_disk_image=eclipse-autosd-bootc-${aib_target}-${{ matrix.platform }}.img
+
+            echo from ${aib_oci_image} to ${aib_disk_image}
+    
+            skopeo copy \
+            docker://${aib_oci_image} \
+            oci-archive://$PWD/_build/outputs/${aib_oci_archive}
+
+            sudo -E ./auto-image-builder.sh --verbose to-disk-image \
+            --build-container ${AIB_BUILD_CONTAINER_IMAGE} \
+            --oci-archive \
+            _build/outputs/${aib_oci_archive} \
+            _build/outputs/eclipse-autosd-bootc-${aib_target}-${{ matrix.platform }}.img
+          done
+      - name: Inspect outputs directory
+        run: tree _build/outputs
