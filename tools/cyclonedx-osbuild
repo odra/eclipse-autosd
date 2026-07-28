@@ -1,0 +1,119 @@
+#!/usr/bin/env python
+
+import sys
+import json
+import base64
+import argparse
+
+from packageurl import PackageURL
+from cyclonedx.model.bom import Bom
+from cyclonedx.output.json import JsonV1Dot7
+from cyclonedx.schema import SchemaVersion
+from cyclonedx.validation.json import JsonStrictValidator
+from cyclonedx.contrib.license.factories import LicenseFactory
+from cyclonedx.model.component import Component, ComponentType
+
+
+def osbuild_load(path):
+    """Load osbuild json file"""
+
+    with open(path, 'r') as f:
+        return json.load(f)
+
+
+def osbuild_get_pipeline(pipelines, name):
+    """Return a pipeline object of a given name"""
+
+    for pipeline in pipelines:
+        if pipeline['name'] == name:
+            return pipeline
+    return None
+
+
+def osbuild_get_source_item(sources, uuid, decode=True):
+    """Return the decoded (optional) source data of a given uuid"""
+
+    source = None
+    
+    for k,v in sources.items():
+        if k == uuid:
+            source = v
+            break
+
+    if source is None or not decode:
+        return source
+
+    return json.loads(base64.b64decode(source['data']))
+
+
+
+def get_components(data, ctx):
+    lc_factory = LicenseFactory()
+
+    for k, v in data[ctx].items():
+        yield Component(
+            name=k,
+            version=v['evr'],
+            type=ComponentType.LIBRARY,
+            licenses=[lc_factory.make_from_string(v['license'])],
+            purl=PackageURL(
+                type='rpm',
+                namespace=v['vendor'].lower().replace(' ', '-'),
+                name=k,
+                version=v['evr'],
+                qualifiers=f'arch={v["arch"]}',
+            ),
+            bom_ref=k,
+        )
+
+
+def bom_to_json(bom):
+    """Parse bom object into a json string"""
+
+    jsondata = JsonV1Dot7(bom)
+    
+    return jsondata.output_as_string(indent=2)
+
+
+def validate_bom_json(jsonstr):
+    """Validate generated bom string"""
+
+    json_validator = JsonStrictValidator(SchemaVersion.V1_7)
+    json_validation_errors = json_validator.validate_str(jsonstr)
+    if json_validation_errors:
+        raise ValueError(repr(json_validation_errors))
+
+
+def cli_parse():
+    """Initialize and parse CLI arguments"""
+
+    parser = argparse.ArgumentParser(prog='cyclonedx-osbuild')
+    parser.add_argument('osbuild_file_path', type=str, help='osbuild.json file path')
+    
+    return parser.parse_args()
+
+
+def cli_run():
+    cli = cli_parse()
+
+    osbuild_data = osbuild_load(cli.osbuild_file_path)
+    root_pipelines = osbuild_data['pipelines']
+    raw_image_pipeline = osbuild_get_pipeline(root_pipelines, 'rpmlist')
+    rpmlist_ref = raw_image_pipeline['stages'][0]['options']['paths'][0]['from'].split(':')[-1]
+    sources_inline_items = osbuild_data['sources']['org.osbuild.inline']['items']
+    rpmlist_source = osbuild_get_source_item(sources_inline_items, f'sha256:{rpmlist_ref}')
+   
+    bom = Bom()
+    for env in ('rootfs', 'qm_rootfs_base', 'build'):
+        for component in get_components(rpmlist_source, env):
+            if not bom.has_component(component):
+                bom.components.add(component) 
+
+    jsonstr = bom_to_json(bom)
+    validate_bom_json(jsonstr)
+    
+    print(jsonstr)
+
+
+if __name__ == '__main__':
+    cli_run()
