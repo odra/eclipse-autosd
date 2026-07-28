@@ -1,0 +1,11 @@
+FROM quay.io/fedora/fedora:44
+
+RUN dnf install -y wget python3 python3-devel pip libicu python3-packageurl-python
+
+RUN wget https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.33.1/cyclonedx-linux-x64 && \
+mv cyclonedx-linux-x64 /usr/local/bin/cyclonedx && \
+chmod +x /usr/local/bin/cyclonedx
+
+RUN pip install cyclonedx-python-lib[validation]
+
+COPY cyclonedx-osbuild /usr/local/bin/cyclonedx-osbuild

@@ -57,7 +57,25 @@ jobs:
       - name: Install Base Dependencies
         run: |
           sudo apt update -y
-          sudo apt install -y podman tree
+          sudo apt install -y ca-certificates wget podman tree \
+          python3 python3-dev python3-pip \
+          libicu-dev
+          
+          sudo apt remove python3-jsonschema
+          sudo pip install --break-system-packages packageurl-python
+      - name: Install CycloneDX
+        run: |
+          if [ "${{ matrix.oci_arch }}" = "amd64" ]; then
+            export cyclonedx_arch=x64
+          else
+            export cyclonedx_arch=arm64
+          fi
+
+          sudo wget https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.33.1/cyclonedx-linux-${cyclonedx_arch} && \
+          sudo mv cyclonedx-linux-x64 /usr/local/bin/cyclonedx && \
+          sudo chmod +x /usr/local/bin/cyclonedx
+          sudo pip install cyclonedx-python-lib[validation]
+
       - name: Podman Info
         run: podman info
       - name: Install AIB container script
@@ -67,7 +85,7 @@ jobs:
           chmod +x auto-image-builder.sh
       - name: Prepare Build
         run: |
-          mkdir -p $PWD/_build/{containers-storage,outputs}
+          mkdir -p $PWD/_build/{containers-storage,outputs,tmp}
       - name: Build Bootc Target Image
         run: |
           export AIB_IMAGE=quay.io/centos-sig-automotive/automotive-image-builder:${AIB_VERSION}
@@ -78,13 +96,40 @@ jobs:
           --define-file aib/vars.yml \
           --define-file aib/vars-devel.yml \
           --oci-archive \
+          --osbuild-manifest _build/outputs/eclipse-autosd-bootc-${{ matrix.aib_target }}-${{ matrix.oci_arch }}.osbuild.json \
           aib/image.aib.yml \
           _build/outputs/eclipse-autosd-bootc-${{ matrix.aib_target }}-${{ matrix.oci_arch }}.oci
+      - name: Generate CycloneDX SBOM File
+        run: |
+          ./tools/cyclonedx-osbuild _build/outputs/eclipse-autosd-bootc-${{ matrix.aib_target }}-${{ matrix.oci_arch }}.osbuild.json \
+          > _build/outputs/eclipse-autosd-bootc-${{ matrix.aib_target }}-${{ matrix.oci_arch }}.sbom.json
+      - name: Tmp
+        run: |
+          sudo tree _build/outputs
+      - name: Build SBOM Image
+        run: |
+          export IMG_TARGET=eclipse-autosd-bootc-${{ matrix.aib_target }}-${{ matrix.oci_arch }}
+          
+          export CONTAINER_ID=$(sudo buildah from --name ${IMG_TARGET} scratch)
+          export MOUNT_PATH=$(sudo buildah mount ${IMG_TARGET})
+          
+          sudo mkdir -p ${MOUNT_PATH}/etc/eclipse-autosd/build
+          sudo cp _build/outputs/${IMG_TARGET}.osbuild.json ${MOUNT_PATH}/etc/eclipse-autosd/build/
+          sudo cp _build/outputs/${IMG_TARGET}.sbom.json ${MOUNT_PATH}/etc/eclipse-autosd/build/
+          sudo buildah commit ${CONTAINER_ID} oci-archive:_build/outputs/eclipse-autosd-bootc-buildinfo-${{ matrix.aib_target }}-${{ matrix.oci_arch }}.oci
+          sudo buildah rm ${CONTAINER_ID}
+          
       - name: Store Container Builder Image
         uses: actions/upload-artifact@v4
         with:
           name: eclipse-autosd-bootc-${{ matrix.aib_target }}-${{ matrix.oci_arch }}.oci
           path: _build/outputs/eclipse-autosd-bootc-${{ matrix.aib_target }}-${{ matrix.oci_arch }}.oci
+
+      - name: Store Container Builder Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: eclipse-autosd-bootc-build-${{ matrix.aib_target }}-${{ matrix.oci_arch }}.oci
+          path: _build/outputs/eclipse-autosd-bootc-build-${{ matrix.aib_target }}-${{ matrix.oci_arch }}.oci
   
   publish-target-images:
     # See: https://github.com/actions/runner-images/issues/10443
@@ -116,7 +161,7 @@ jobs:
       - name: Inspect Current Directory
         run: tree .
  
-      - name: Tag Container Images
+      - name: Tag Target Container Images
         run: |
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             tag_pr="pr${{ github.event.pull_request.number }}"
@@ -141,14 +186,45 @@ jobs:
               containers-storage:${oci_image}
 
               podman manifest add eclipse-autosd-bootc-${oci_target}:latest \
-              containers-storage:${oci_image}
-
+              containers-storage:${oci_image} 
               echo "---"
             fi
           done
         working-directory: outputs
 
-      - name: Check Imported Images
+      - name: Tag BuildInfo Container Images
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            tag_pr="pr${{ github.event.pull_request.number }}"
+          fi
+
+          podman manifest create eclipse-autosd-bootc-buildinfo-qemu:latest
+          podman manifest create eclipse-autosd-bootc-buildinfo-rpi4:latest
+          podman manifest create eclipse-autosd-bootc-buildinfo-ebbr:latest
+
+          for oci_file in *.oci; do 
+            if [[ "${oci_file}" =~ eclipse-autosd-bootc-buildinfo-(qemu|rpi4|ebbr)-(amd64|arm64)\.oci ]]; then
+              oci_version="${tag_pr:-latest}"
+              oci_target="${BASH_REMATCH[1]}"
+              oci_arch="${BASH_REMATCH[2]}"
+              oci_image="${OCI_REG}/${OCI_ORG}/eclipse-autosd-bootc-buildinfo-${oci_target}:${oci_version}-${oci_arch}"
+
+              echo "From: ${oci_file}"
+              echo "To: ${oci_image}"
+
+              skopeo copy \
+              oci-archive:${oci_file} \
+              containers-storage:${oci_image}
+
+              podman manifest add eclipse-autosd-bootc-buildinfo-${oci_target}:latest \
+              containers-storage:${oci_image} 
+              echo "---"
+            fi
+          done
+        working-directory: outputs
+
+
+      - name: Check Imported Target Images
         run: |
           podman images
           
@@ -160,7 +236,19 @@ jobs:
             podman manifest inspect ${manifest_name}:latest
           done
 
-      - name: Push Container Images
+      - name: Check Imported BuildInfo Images
+        run: |
+          podman images
+          
+          aib_targets=("qemu" "rpi4" "ebbr")
+          for aib_target in ${aib_targets[@]}; do
+            manifest_name="eclipse-autosd-bootc-buildinfo-${aib_target}"
+            
+            echo "---${manifest_name}---"
+            podman manifest inspect ${manifest_name}:latest
+          done
+
+      - name: Push Target Container Images
         run: |
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             tag_pr="pr${{ github.event.pull_request.number }}"
@@ -173,4 +261,19 @@ jobs:
             podman manifest push --all \
             eclipse-autosd-bootc-${aib_target}:latest \
             docker://${OCI_REG}/${OCI_ORG}/eclipse-autosd-bootc-${aib_target}:${tag_pr:-latest}
+          done
+
+      - name: Push BuildInfo Container Images
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            tag_pr="pr${{ github.event.pull_request.number }}"
+          fi
+
+          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+          
+          aib_targets=("qemu" "rpi4" "ebbr")
+          for aib_target in ${aib_targets[@]}; do
+            podman manifest push --all \
+            eclipse-autosd-bootc-buildinfo-${aib_target}:latest \
+            docker://${OCI_REG}/${OCI_ORG}/eclipse-autosd-bootc-build-${aib_target}:${tag_pr:-latest}
           done
